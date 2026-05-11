@@ -1,0 +1,49 @@
+env:
+  id: "ALE/SpaceInvaders-v5"
+  render_mode: null
+  repeat_action_probability: 0.0
+
+preprocessing:
+  mode: "rgb"
+  image_size: 84
+  frame_stack: 1
+  normalize: true
+
+model:
+  feature_dim: 512            # dimensione del vettore di features in uscita dalla CNN
+  device: "cpu"               # "cpu" | "cuda" | "mps"
+  conv_layers:                # architettura Nature DQN — modificabile
+    - out_channels: 32
+      kernel_size: 8
+      stride: 4
+    - out_channels: 64
+      kernel_size: 4
+      stride: 2
+    - out_channels: 64
+      kernel_size: 3
+      stride: 1
+
+masking:
+  enabled: false
+  num_masks: 2
+  mask_size: [20, 20]
+  mask_duration: 5
+  apply_probability: 0.3
+  mask_value: "zero"
+
+evaluation:
+  num_episodes: 10
+  seeds: [42, 123, 456, 789, 1000]
+  agent: "CNNDummyAgent"      # aggiornato a CNNDummyAgent
+  save_results: true
+  results_dir: "results"
+  results_format: "csv"
+
+logging:
+  level: "INFO"
+  log_every_n_episodes: 1
+
+analysis:
+  confidence_level: 0.95
+  plot_format: "png"
+  plots_dir: "results/plots"
