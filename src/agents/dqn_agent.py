@@ -1,141 +1,165 @@
 """
-Agente che implementa algoritmo DQN
+DQN Agent — agente value-based con Q-learning profondo.
+
+Architettura (Nature DQN, Mnih et al. 2015):
+  CNNBackbone(in_channels=4) → Linear(512, n_actions)
+
+Differenze chiave DQN vs PPO:
+  - Value-based (solo Q-network) vs Actor-Critic (policy + value head condivisi)
+  - Off-policy con replay buffer vs on-policy senza buffer
+  - Esplorazione epsilon-greedy (soglia deterministica) vs distribuzione stocastica
+  - Target network separata (stabilità training) vs Critic head (baseline per vantaggio)
 """
 
-from abc import ABC, abstractmethod
-import numpy as np
-from .base_agent import BaseAgent
-
-from typing import Optional
-
-import gymnasium as gym
-import math
 import random
-import matplotlib
-import matplotlib.pyplot as plt
-from collections import namedtuple, deque
-from itertools import count
-
-from src.models.DQN import DQN
-from src.models.cnn_backbone import CNNBackbone
-
+import numpy as np
 import torch
 import torch.nn as nn
-import torch.optim as optim
 import torch.nn.functional as F
+from typing import Dict, Optional
 
-Transition = namedtuple('Transition',
-                        ('state', 'action', 'next_state', 'reward'))
-
-BATCH_SIZE = 128
-GAMMA = 0.99
-EPS_START = 0.9
-EPS_END = 0.01
-EPS_DECAY = 2500
-TAU = 0.005
-LR = 3e-4
+from src.models.cnn_backbone import CNNBackbone
+from src.agents.base_agent import BaseAgent
 
 
-class ReplayMemory(object):
+class QNetwork(nn.Module):
+    """
+    Rete Q: backbone CNN + head lineare sulle azioni.
 
-    def __init__(self, capacity):
-        self.memory = deque([], maxlen=capacity)
+    Input:  (B, 4, 84, 84) float32 in [0, 1]
+    Output: (B, n_actions) float32  — Q-value per ogni azione
+    """
 
-    def push(self, *args):
-        """Save a transition"""
-        self.memory.append(Transition(*args))
+    def __init__(self, n_actions: int, feature_dim: int = 512):
+        super().__init__()
+        # in_channels=4: 4 frame grayscale impilati (standard Atari DQN)
+        self.backbone = CNNBackbone(in_channels=4, feature_dim=feature_dim)
+        self.head = nn.Linear(feature_dim, n_actions)
 
-    def sample(self, batch_size):
-        return random.sample(self.memory, batch_size)
-
-    def __len__(self):
-        return len(self.memory)
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        features = self.backbone(x)
+        return self.head(features)
 
 
 class DQNAgent(BaseAgent):
     """
-    Classe base astratta per gli agenti.
+    Agente DQN con epsilon-greedy e target network.
 
-    Definisce il contratto che ogni agente deve rispettare,
-    garantendo compatibilità con il loop di training/evaluation.
+    Durante training: usa epsilon-greedy per esplorazione.
+    Durante evaluation: policy greedy (argmax Q).
     """
 
     def __init__(
         self,
-        action_space_size: int,
-        observation_space_size: int,
+        n_actions: int,
+        feature_dim: int = 512,
+        learning_rate: float = 1e-4,
+        gamma: float = 0.99,
+        epsilon_start: float = 1.0,
+        epsilon_end: float = 0.01,
+        epsilon_decay_steps: int = 500_000,
         device: str = "cpu",
-        seed: Optional[int] = None,
-        cnn: CNNBackbone = None
     ):
-        """
-        Args:
-            action_space_size: Numero di azioni discrete disponibili.
-            name: Nome identificativo dell'agente.
-        """
-        super().__init__(action_space_size=action_space_size, name="DQNAgent")
+        super().__init__(action_space_size=n_actions, name="DQNAgent")
 
-        self._action_space_size = action_space_size
-        self._observation_space_size = observation_space_size
+        self.gamma = gamma
+        self.epsilon = epsilon_start
+        self.epsilon_start = epsilon_start
+        self.epsilon_end = epsilon_end
+        self.epsilon_decay_steps = epsilon_decay_steps
+        self.device = torch.device(device)
+        self._training = True
 
-        self.device = device
-        self.cnn = cnn.to(device)
+        self.q_network = QNetwork(n_actions, feature_dim).to(self.device)
+        # Target network: copia della Q-network, aggiornata periodicamente (hard update).
+        # Stabilizza il training evitando che target e predizioni cambino insieme.
+        self.target_network = QNetwork(n_actions, feature_dim).to(self.device)
+        self.target_network.load_state_dict(self.q_network.state_dict())
+        self.target_network.eval()
 
-        feature_dim = cnn.get_feature_dim()
-
-        self.dqn = DQN(n_observations=feature_dim, n_actions=action_space_size)
-
-        self._rng = np.random.default_rng(seed)
-        self._seed = seed
-
-        self.steps_done = 0
+        self.optimizer = torch.optim.Adam(self.q_network.parameters(), lr=learning_rate)
 
     def act(self, observation: np.ndarray) -> int:
         """
-        Sceglie un'azione casuale ignorando l'osservazione.
+        Sceglie azione con epsilon-greedy (training) o greedy (eval).
 
         Args:
-            observation: Osservazione preprocessata (ignorata).
-
-        Returns:
-            Azione casuale intera in [0, action_space_size).
+            observation: (4, 84, 84) uint8 da env con wrapper Atari.
         """
-        obs_tensor = torch.from_numpy(observation).unsqueeze(0).to(self.device)
-        
+        if self._training and random.random() < self.epsilon:
+            return random.randrange(self.action_space_size)
+
+        obs = torch.from_numpy(np.array(observation)).float().unsqueeze(0).to(self.device) / 255.0
         with torch.no_grad():
-          features = self.cnn(obs_tensor)
-          q_values = self.dqn(features)
-    
-        # Explore the actiosn
-        eps_threshold = EPS_END + (EPS_START - EPS_END) * math.exp(-1. * self.steps_done / EPS_DECAY)
-        if random.random() > eps_threshold:
-            with torch.no_grad():
-                return int(self._rng.integers(0, self._action_space_size))
-        else:
-            return int(q_values.argmax(dim=1).item())
+            q_values = self.q_network(obs)
+        return int(q_values.argmax(dim=1).item())
 
     def reset(self) -> None:
-        """
-        Reimposta il generatore casuale al seed iniziale
-        per garantire riproducibilità tra episodi con lo stesso seed.
-        """
-        self._rng = np.random.default_rng(self._seed)
-
-    def update(self, *args, **kwargs) -> None:
-        """
-        Aggiorna i parametri dell'agente (es. pesi della rete).
-        Placeholder per futuri agenti allenabili.
-        Per il DummyAgent non fa nulla.
-        """
         pass
+
+    def update(self, batch: Dict[str, torch.Tensor]) -> Dict[str, float]:
+        """
+        Aggiorna Q-network su un batch dal replay buffer.
+
+        Target Q = r + γ * max_a' Q_target(s', a')  se not done
+        Target Q = r                                  se done
+
+        Loss: Huber (smooth_l1) — più robusta di MSE per valori outlier in RL.
+
+        Returns:
+            Dict con 'loss' per logging TensorBoard.
+        """
+        obs = batch["obs"]
+        next_obs = batch["next_obs"]
+        actions = batch["actions"]
+        rewards = batch["rewards"]
+        dones = batch["dones"]
+
+        # Q-value predetto per le azioni effettivamente eseguite
+        q_pred = self.q_network(obs).gather(1, actions.unsqueeze(1)).squeeze(1)
+
+        # Target Q: calcolato con target network (no gradient)
+        with torch.no_grad():
+            q_next = self.target_network(next_obs).max(dim=1)[0]
+            q_target = rewards + self.gamma * q_next * (1.0 - dones)
+
+        loss = F.smooth_l1_loss(q_pred, q_target)
+
+        self.optimizer.zero_grad()
+        loss.backward()
+        # Gradient clipping per stabilità (comune in DQN su Atari)
+        nn.utils.clip_grad_norm_(self.q_network.parameters(), max_norm=10.0)
+        self.optimizer.step()
+
+        return {"loss": loss.item()}
+
+    def update_target_network(self) -> None:
+        """Hard update: copia pesi da Q-network a target network."""
+        self.target_network.load_state_dict(self.q_network.state_dict())
+
+    def decay_epsilon(self, step: int) -> None:
+        """Decadimento lineare di epsilon in base allo step corrente."""
+        fraction = min(1.0, step / self.epsilon_decay_steps)
+        self.epsilon = self.epsilon_start + fraction * (self.epsilon_end - self.epsilon_start)
+
+    def set_training_mode(self, training: bool) -> None:
+        self._training = training
+        if training:
+            self.q_network.train()
+        else:
+            self.q_network.eval()
 
     def save(self, path: str) -> None:
-        """Salva il modello su disco. Placeholder."""
-        pass
+        torch.save({
+            "q_network": self.q_network.state_dict(),
+            "target_network": self.target_network.state_dict(),
+            "optimizer": self.optimizer.state_dict(),
+            "epsilon": self.epsilon,
+        }, path)
 
     def load(self, path: str) -> None:
-        """Carica il modello da disco. Placeholder."""
-        pass
-
-    def __repr__(self) -> str:
-        return f"{self.__class__.__name__}(action_space_size={self.action_space_size})"
+        checkpoint = torch.load(path, map_location=self.device)
+        self.q_network.load_state_dict(checkpoint["q_network"])
+        self.target_network.load_state_dict(checkpoint["target_network"])
+        self.optimizer.load_state_dict(checkpoint["optimizer"])
+        self.epsilon = checkpoint["epsilon"]

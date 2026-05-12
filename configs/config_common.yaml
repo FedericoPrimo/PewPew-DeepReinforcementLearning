@@ -1,0 +1,11 @@
+seed: 42
+
+env:
+  id: "ALE/SpaceInvaders-v5"
+
+eval:
+  episodes: 30
+  results_dir: "results"
+
+logging:
+  tensorboard_dir: "logs"
