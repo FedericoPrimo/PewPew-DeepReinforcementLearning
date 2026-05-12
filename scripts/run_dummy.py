@@ -21,8 +21,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from src.utils.config import load_config, merge_configs
 from src.agents.dummy_agent import DummyAgent
 from src.agents.cnn_dummy_agent import CNNDummyAgent
+from src.agents.dqn_agent import DQNAgent
 from src.models.cnn_backbone import build_cnn_from_config
-from src.envs.make_env import make_env_from_config, get_action_space_size
+from src.envs.make_env import make_env_from_config, get_sizes
 from src.loops.evaluate import evaluate_agent
 from src.logging.metrics_logger import MetricsLogger
 
@@ -32,7 +33,7 @@ def parse_args() -> argparse.Namespace:
         description="Valuta un agente su Atari Space Invaders."
     )
     parser.add_argument("--config", type=str, default="configs/default.yaml")
-    parser.add_argument("--agent", type=str, choices=["dummy", "cnn-dummy"], default="cnn-dummy",
+    parser.add_argument("--agent", type=str, choices=["dummy", "cnn-dummy", "DQN"], default="cnn-dummy",
                         help="Agente da usare: dummy (senza CNN) o cnn-dummy (con CNN)")
     parser.add_argument("--episodes", type=int, default=None)
     parser.add_argument("--seeds", type=int, nargs="+", default=None)
@@ -81,10 +82,10 @@ def main() -> None:
     if overrides:
         config = merge_configs(config, overrides)
 
-    # Ambiente temporaneo per lo spazio azioni
+    # Ambiente temporaneo per prendere alcune info utili per init agenti come obs space e act space
     logger.info("Inizializzazione ambiente...")
     tmp_env = make_env_from_config(config)
-    action_space_size = get_action_space_size(tmp_env)
+    observation_space_size, action_space_size = get_sizes(tmp_env)
     tmp_env.close()
     logger.info(f"Azioni disponibili: {action_space_size}")
 
@@ -95,7 +96,14 @@ def main() -> None:
         logger.info(f"\n{cnn.summary()}\n")
         device = config.model.device
         agent = CNNDummyAgent(action_space_size=action_space_size, cnn=cnn, device=device)
+    if args.agent == "DQN":
+        logger.info("Costruzione DQN Agent...")
+        device = config.model.device
+        cnn = build_cnn_from_config(config)
+        logger.info(f"\n{cnn.summary()}\n")
+        agent = DQNAgent(action_space_size=action_space_size, observation_space_size=observation_space_size, device=device, seed=args.seeds, cnn=cnn)
     else:
+        # Fallback
         agent = DummyAgent(action_space_size=action_space_size)
 
     logger.info(f"Agente: {agent.name}")

@@ -133,6 +133,9 @@ class CNNBackbone(nn.Module):
         n_params = sum(p.numel() for p in self.parameters())
         lines.append(f"  Parametri:   {n_params:,}")
         return "\n".join(lines)
+    
+    def get_feature_dim(self) -> int:
+        return self.feature_dim
 
 
 def build_cnn_from_config(config) -> CNNBackbone:

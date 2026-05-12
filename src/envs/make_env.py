@@ -74,3 +74,27 @@ def get_action_space_size(env: gym.Env) -> int:
         Numero intero di azioni discrete.
     """
     return int(env.action_space.n)
+
+def get_obs_space_size(env: gym.Env) -> tuple[int, ...]:
+  """
+    Returns obs space size
+
+    Args:
+        env: Env instance.
+
+    Returns:
+        obs_size.
+  """
+  return env.observation_space.shape
+
+def get_sizes(env: gym.Env) -> tuple[tuple[int, ...], int]:
+    """
+    Returns observation and action space size.
+
+    Args:
+        env: Env instance.
+
+    Returns:
+        obs_size, action_size.
+    """
+    return get_obs_space_size(env), get_action_space_size(env)
