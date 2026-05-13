@@ -6,7 +6,7 @@ observation → preprocessing → action.
 import pytest
 import numpy as np
 
-from src.agents.dummy_agent import DummyAgent
+from src.agents.test.dummy_agent import DummyAgent
 from src.agents.base_agent import BaseAgent
 from src.preprocessing.image_preprocessor import ImagePreprocessor
 from src.preprocessing.masking import RandomScreenMasker

@@ -48,7 +48,6 @@ def make_dqn_env(env_id: str, seed: int) -> gym.Env:
     env = AtariWrapper(env, clip_reward=True)
     # gymnasium 1.x: FrameStack rinominato FrameStackObservation
     env = gym.wrappers.FrameStackObservation(env, 4)
-    env.reset(seed=seed)
     return env
 
 
@@ -82,6 +81,7 @@ def evaluate_greedy(agent: DQNAgent, env_id: str, seed: int, n_episodes: int) ->
 
 
 def main():
+    ## Load configs
     parser = argparse.ArgumentParser(description="Training DQN su Atari Space Invaders")
     parser.add_argument("--config", default="configs/config_dqn.yaml")
     parser.add_argument("--common", default="configs/config_common.yaml")
@@ -103,13 +103,12 @@ def main():
     device = args.device or cfg_dqn.model.device
 
     set_global_seed(seed)
-    torch.manual_seed(seed)
-    np.random.seed(seed)
-    random.seed(seed)
 
     results_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"[DQN] Env: {env_id} | Seed: {seed} | Device: {device} | Steps: {total_timesteps:,}")
+
+    # Start making env
 
     env = make_dqn_env(env_id, seed)
     n_actions = env.action_space.n
@@ -133,7 +132,7 @@ def main():
 
     tb_logger = TBLogger(log_dir=str(Path(tb_dir) / "dqn"))
 
-    obs, _ = env.reset()
+    obs, _ = env.reset(seed=seed)
     ep_reward = 0.0
     ep_length = 0
     ep_rewards_window = deque(maxlen=100)
@@ -151,7 +150,10 @@ def main():
     )
     last_loss = float("nan")
     for step in pbar:
+        # Reduce the observation if it has the greyscale channel at the end which is useless (4x84x84x1)
         obs_np = obs_to_numpy(obs)
+        # Obs now should be (4x84x84) which are 4 stacked frames reduced by the atari wrapper
+
         action = agent.act(obs_np)
 
         next_obs, reward, terminated, truncated, _ = env.step(action)
@@ -170,7 +172,7 @@ def main():
                 batch = buffer.sample(dqn.batch_size)
                 info = agent.update(batch)
                 last_loss = info["loss"]
-                tb_logger.log_td_loss(last_loss, step)
+                tb_logger.log_td_loss(step, last_loss)
 
         # Target network hard update
         if step % dqn.target_update_freq == 0:
@@ -180,7 +182,7 @@ def main():
         agent.decay_epsilon(step)
 
         if step % 1000 == 0:
-            tb_logger.log_epsilon(agent.epsilon, step)
+            tb_logger.log_epsilon(step, agent.epsilon)
 
         # Fine episodio
         if done:
@@ -188,8 +190,12 @@ def main():
             mean_reward = float(np.mean(ep_rewards_window))
             max_reward_seen = max(max_reward_seen, ep_reward)
 
-            tb_logger.log_episode(mean_reward, ep_length, step)
-            tb_logger.log_max_reward(max_reward_seen, step)
+            tb_logger.log_episode(
+                step=step,
+                reward=mean_reward,
+                length=ep_length,
+                max_reward=max_reward_seen,
+            )
 
             pbar.set_postfix(
                 {
@@ -208,7 +214,7 @@ def main():
     pbar.close()
     training_time = time.time() - start_time
     env.close()
-    tb_logger.close()
+    tb_logger.log_training_time(training_time)
     print(f"[DQN] Training completato in {training_time:.1f}s")
 
     # Salva modello
@@ -234,6 +240,15 @@ def main():
     results_path = results_dir / "dqn_results.json"
     with open(results_path, "w") as f:
         json.dump(results, f, indent=2)
+
+    tb_logger.log_eval(
+        step=total_timesteps,
+        mean_reward=results["mean_reward"],
+        std_reward=results["std_reward"],
+        max_reward=results["max_reward"],
+    )
+    tb_logger.flush()
+    tb_logger.close()
 
     print(f"[DQN] Risultati salvati: {results_path}")
     print(f"[DQN] mean_reward={results['mean_reward']:.1f} ± {results['std_reward']:.1f}")

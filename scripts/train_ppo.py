@@ -16,7 +16,6 @@ Differenza da DQN: on-policy, nessun replay buffer, esplorazione stocastica.
 
 import argparse
 import json
-import random
 import sys
 import time
 from pathlib import Path
@@ -24,51 +23,19 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import numpy as np
-import torch
 import gymnasium as gym
 import ale_py
 
 from stable_baselines3 import PPO
 from stable_baselines3.common.env_util import make_atari_env
 from stable_baselines3.common.vec_env import VecFrameStack
-from stable_baselines3.common.callbacks import BaseCallback
 
 # Registra namespace ALE prima che SB3 chiami gym.make internamente
 gym.register_envs(ale_py)
 
 from src.utils.config import load_config
 from src.utils.seeding import set_global_seed
-from src.agents.ppo_agent import PPOAgent
-
-
-class StandardMetricsCallback(BaseCallback):
-    """
-    Callback SB3 che remappa i tag interni nei tag standard del progetto:
-      rollout/ep_rew_mean  → train/mean_reward
-      rollout/ep_len_mean  → train/episode_length
-      train/policy_loss    → train/policy_loss   (invariato)
-      train/value_loss     → train/value_loss    (invariato)
-    """
-
-    def __init__(self, verbose: int = 0):
-        super().__init__(verbose)
-        self._max_reward = float("-inf")
-
-    def _on_step(self) -> bool:
-        return True
-
-    def _on_rollout_end(self) -> None:
-        logs = self.logger.name_to_value
-        step = self.num_timesteps
-
-        if "rollout/ep_rew_mean" in logs:
-            mean_rew = logs["rollout/ep_rew_mean"]
-            self._max_reward = max(self._max_reward, mean_rew)
-            self.logger.record("train/mean_reward", mean_rew)
-            self.logger.record("train/max_reward", self._max_reward)
-
-        if "rollout/ep_len_mean" in logs:
-            self.logger.record("train/episode_length", logs["rollout/ep_len_mean"])
+from src.training.tb_logger import TBLogger, PPOTrainingMetricsCallback
 
 
 def make_ppo_env(env_id: str, n_envs: int, seed: int):
@@ -110,6 +77,7 @@ def linear_schedule(initial_value: float):
 
 
 def main():
+    ## Load configs
     parser = argparse.ArgumentParser(description="Training PPO su Atari Space Invaders")
     parser.add_argument("--config", default="configs/config_ppo.yaml")
     parser.add_argument("--common", default="configs/config_common.yaml")
@@ -131,16 +99,16 @@ def main():
     device = args.device or cfg_ppo.model.device
 
     set_global_seed(seed)
-    torch.manual_seed(seed)
-    np.random.seed(seed)
-    random.seed(seed)
 
     results_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"[PPO] Env: {env_id} | Seed: {seed} | Device: {device} | Steps: {total_timesteps:,}")
     print(f"[PPO] n_envs: {ppo.n_envs} | n_steps: {ppo.n_steps} | batch_size: {ppo.batch_size}")
+    
+    # Start making env
 
     vec_env = make_ppo_env(env_id, n_envs=ppo.n_envs, seed=seed)
+    tb_logger = TBLogger(log_dir=str(Path(tb_dir) / "ppo"))
 
     lr = linear_schedule(ppo.learning_rate) if ppo.lr_schedule == "linear" else ppo.learning_rate
 
@@ -156,13 +124,12 @@ def main():
         gae_lambda=ppo.gae_lambda,
         ent_coef=ppo.ent_coef,
         vf_coef=ppo.vf_coef,
-        tensorboard_log=str(Path(tb_dir) / "ppo"),
         device=device,
         seed=seed,
         verbose=1,
     )
 
-    callback = StandardMetricsCallback()
+    callback = PPOTrainingMetricsCallback(tb_logger)
 
     start_time = time.time()
     print("[PPO] Inizio training...")
@@ -175,6 +142,7 @@ def main():
 
     training_time = time.time() - start_time
     vec_env.close()
+    tb_logger.log_training_time(training_time)
     print(f"[PPO] Training completato in {training_time:.1f}s")
 
     # Salva modello
@@ -200,6 +168,15 @@ def main():
     results_path = results_dir / "ppo_results.json"
     with open(results_path, "w") as f:
         json.dump(results, f, indent=2)
+
+    tb_logger.log_eval(
+        step=total_timesteps,
+        mean_reward=results["mean_reward"],
+        std_reward=results["std_reward"],
+        max_reward=results["max_reward"],
+    )
+    tb_logger.flush()
+    tb_logger.close()
 
     print(f"[PPO] Risultati salvati: {results_path}")
     print(f"[PPO] mean_reward={results['mean_reward']:.1f} ± {results['std_reward']:.1f}")

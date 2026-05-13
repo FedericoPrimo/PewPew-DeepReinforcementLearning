@@ -7,7 +7,7 @@ import numpy as np
 import torch
 
 from src.models.cnn_backbone import CNNBackbone
-from src.agents.cnn_dummy_agent import CNNDummyAgent
+from src.agents.test.cnn_dummy_agent import CNNDummyAgent
 from src.preprocessing.image_preprocessor import ImagePreprocessor
 
 
