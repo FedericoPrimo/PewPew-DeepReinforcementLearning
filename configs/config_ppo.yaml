@@ -16,3 +16,4 @@ ppo:
 
 model:
   device: "cpu"              # "cpu" | "cuda" | "mps"
+  feature_dim: 512

@@ -1,0 +1,1 @@
+Look at the code with 0 context and return doubts and improvements

@@ -109,7 +109,7 @@ class CNNBackbone(nn.Module):
             Tensore (B, feature_dim) float32.
         """
         x = self.conv(x)
-        x = x.view(x.size(0), -1)   # Flatten: (B, conv_out_dim)
+        x = x.reshape(x.size(0), -1)   # Flatten: (B, conv_out_dim)
         x = self.fc(x)               # (B, feature_dim)
         return x
 
