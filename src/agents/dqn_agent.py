@@ -2,7 +2,7 @@
 DQN Agent — agente value-based con Q-learning profondo.
 
 Architettura (Nature DQN, Mnih et al. 2015):
-  CNNBackbone(in_channels=4) → Linear(512, n_actions)
+  CNNBackbone(in_channels=C) → Linear(512, n_actions)
 
 Differenze chiave DQN vs PPO:
   - Value-based (solo Q-network) vs Actor-Critic (policy + value head condivisi)
@@ -26,14 +26,13 @@ class QNetwork(nn.Module):
     """
     Rete Q: backbone CNN + head lineare sulle azioni.
 
-    Input:  (B, 4, 84, 84) float32 in [0, 1]
+    Input:  (B, C, 84, 84) float32 in [0, 1]
     Output: (B, n_actions) float32  — Q-value per ogni azione
     """
 
-    def __init__(self, n_actions: int, feature_dim: int = 512):
+    def __init__(self, n_actions: int, feature_dim: int = 512, in_channels: int = 12):
         super().__init__()
-        # in_channels=4: 4 frame grayscale impilati (standard Atari DQN)
-        self.backbone = CNNBackbone(in_channels=4, feature_dim=feature_dim)
+        self.backbone = CNNBackbone(in_channels=in_channels, feature_dim=feature_dim)
         self.head = nn.Linear(feature_dim, n_actions)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -59,6 +58,7 @@ class DQNAgent(BaseAgent):
         epsilon_end: float = 0.01,
         epsilon_decay_steps: int = 500_000,
         device: str = "cpu",
+        in_channels: int = 12,
     ):
         super().__init__(action_space_size=n_actions, name="DQNAgent")
 
@@ -70,26 +70,33 @@ class DQNAgent(BaseAgent):
         self.device = torch.device(device)
         self._training = True
 
-        self.q_network = QNetwork(n_actions, feature_dim).to(self.device)
+        self.q_network = QNetwork(n_actions, feature_dim, in_channels=in_channels).to(self.device)
         # Target network: copia della Q-network, aggiornata periodicamente (hard update).
         # Stabilizza il training evitando che target e predizioni cambino insieme.
-        self.target_network = QNetwork(n_actions, feature_dim).to(self.device)
+        self.target_network = QNetwork(n_actions, feature_dim, in_channels=in_channels).to(self.device)
         self.target_network.load_state_dict(self.q_network.state_dict())
         self.target_network.eval()
 
         self.optimizer = torch.optim.Adam(self.q_network.parameters(), lr=learning_rate)
+
+    def _obs_to_tensor(self, observation: np.ndarray) -> torch.Tensor:
+        obs = np.asarray(observation)
+        tensor = torch.from_numpy(obs).float().unsqueeze(0).to(self.device)
+        if obs.dtype == np.uint8 or tensor.max().item() > 1.0:
+            tensor = tensor / 255.0
+        return tensor
 
     def act(self, observation: np.ndarray) -> int:
         """
         Sceglie azione con epsilon-greedy (training) o greedy (eval).
 
         Args:
-            observation: (4, 84, 84) uint8 da env con wrapper Atari.
+            observation: (C, 84, 84) da env con pipeline Atari unificata.
         """
         if self._training and random.random() < self.epsilon:
             return random.randrange(self.action_space_size)
 
-        obs = torch.from_numpy(np.array(observation)).float().unsqueeze(0).to(self.device) / 255.0
+        obs = self._obs_to_tensor(observation)
         with torch.no_grad():
             q_values = self.q_network(obs)
         return int(q_values.argmax(dim=1).item())

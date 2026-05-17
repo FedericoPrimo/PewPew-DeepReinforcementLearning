@@ -1,8 +1,8 @@
 """
-Atari preprocessing wrappers — standalone, no SB3 dependency.
+Atari environment wrappers con preprocessing visivo unificato.
 
 Stack order (outer → inner):
-  FrameStack(4) → ClipReward → WarpFrame → FireReset
+  ClipReward → ImagePreprocessingWrapper → FireReset
   → EpisodicLife → MonitorWrapper → MaxAndSkip(4) → NoopReset → raw_env
 
 MonitorWrapper placed before EpisodicLife so episode reward accumulates
@@ -10,9 +10,10 @@ across life-loss sub-episodes and reports only on true game over.
 """
 
 import numpy as np
-import cv2
 import gymnasium as gym
-from collections import deque
+
+from src.preprocessing.image_preprocessor import ImagePreprocessor, ImagePreprocessingWrapper
+from src.preprocessing.masking import RandomScreenMasker
 
 
 class NoopResetEnv(gym.Wrapper):
@@ -115,23 +116,6 @@ class FireResetEnv(gym.Wrapper):
         return obs, info
 
 
-class WarpFrame(gym.ObservationWrapper):
-    """Grayscale + resize to 84×84 → output (84, 84, 1) uint8."""
-
-    def __init__(self, env: gym.Env, width: int = 84, height: int = 84):
-        super().__init__(env)
-        self.width = width
-        self.height = height
-        self.observation_space = gym.spaces.Box(
-            low=0, high=255, shape=(height, width, 1), dtype=np.uint8
-        )
-
-    def observation(self, obs: np.ndarray) -> np.ndarray:
-        gray = cv2.cvtColor(obs, cv2.COLOR_RGB2GRAY)
-        resized = cv2.resize(gray, (self.width, self.height), interpolation=cv2.INTER_AREA)
-        return resized[:, :, np.newaxis]
-
-
 class ClipRewardEnv(gym.RewardWrapper):
     """Clip reward to {-1, 0, +1}."""
 
@@ -139,35 +123,23 @@ class ClipRewardEnv(gym.RewardWrapper):
         return float(np.sign(reward))
 
 
-class FrameStack(gym.Wrapper):
-    """Stack last n_stack frames along channel axis → (H, W, n_stack) uint8."""
+def make_atari_env(
+    env_id: str,
+    seed: int = 0,
+    preprocessing_kwargs: dict | None = None,
+    masking_kwargs: dict | None = None,
+) -> gym.Env:
+    """
+    Single Atari env con pipeline comune DQN/PPO.
 
-    def __init__(self, env: gym.Env, n_stack: int = 4):
-        super().__init__(env)
-        self.n_stack = n_stack
-        self._frames: deque = deque(maxlen=n_stack)
-        h, w, c = env.observation_space.shape
-        self.observation_space = gym.spaces.Box(
-            low=0, high=255, shape=(h, w, n_stack * c), dtype=np.uint8
-        )
+    preprocessing_kwargs controlla:
+      - mode: rgb | grayscale
+      - image_size
+      - frame_stack
+      - normalize
 
-    def _obs(self) -> np.ndarray:
-        return np.concatenate(list(self._frames), axis=-1)
-
-    def reset(self, **kwargs):
-        obs, info = self.env.reset(**kwargs)
-        for _ in range(self.n_stack):
-            self._frames.append(obs)
-        return self._obs(), info
-
-    def step(self, action):
-        obs, reward, terminated, truncated, info = self.env.step(action)
-        self._frames.append(obs)
-        return self._obs(), reward, terminated, truncated, info
-
-
-def make_atari_env(env_id: str, seed: int = 0) -> gym.Env:
-    """Single Atari env with full preprocessing stack matching SB3's make_atari_env."""
+    masking_kwargs controlla il masking opzionale.
+    """
     import ale_py
     gym.register_envs(ale_py)
     env = gym.make(env_id)
@@ -177,7 +149,8 @@ def make_atari_env(env_id: str, seed: int = 0) -> gym.Env:
     env = MonitorWrapper(env)
     env = EpisodicLifeEnv(env)
     env = FireResetEnv(env)
-    env = WarpFrame(env)
+    preprocessor = ImagePreprocessor(**(preprocessing_kwargs or {}))
+    masker = RandomScreenMasker(**(masking_kwargs or {}))
+    env = ImagePreprocessingWrapper(env, preprocessor=preprocessor, masker=masker)
     env = ClipRewardEnv(env)
-    env = FrameStack(env, n_stack=4)
     return env

@@ -29,7 +29,7 @@ class RolloutBuffer:
         self,
         n_steps: int,
         n_envs: int,
-        obs_shape: tuple = (4, 84, 84),
+        obs_shape: tuple = (12, 84, 84),
         device: str = "cpu",
     ):
         self.n_steps = n_steps

@@ -56,6 +56,7 @@ class PPOAgent(BaseAgent):
         vf_coef: float,
         device: str = "cpu",
         feature_dim: int = 512,
+        obs_shape: tuple[int, int, int] = (12, 84, 84),
     ):
         super().__init__(action_space_size=n_actions, name="PPOAgent")
         self.n_envs = n_envs
@@ -68,20 +69,29 @@ class PPOAgent(BaseAgent):
         self.ent_coef = ent_coef
         self.vf_coef = vf_coef
         self.device = torch.device(device)
+        self.obs_shape = obs_shape
 
-        self.net = ActorCriticNet(n_actions=n_actions, feature_dim=feature_dim).to(self.device)
+        self.net = ActorCriticNet(
+            n_actions=n_actions,
+            feature_dim=feature_dim,
+            in_channels=obs_shape[0],
+        ).to(self.device)
         self.optimizer = torch.optim.Adam(self.net.parameters(), lr=learning_rate, eps=1e-5)
 
         self.buffer = RolloutBuffer(
             n_steps=n_steps,
             n_envs=n_envs,
-            obs_shape=(4, 84, 84),
+            obs_shape=obs_shape,
             device=device,
         )
 
     def _to_tensor(self, obs: np.ndarray) -> torch.Tensor:
-        """(n_envs, 4, 84, 84) uint8 → float32 [0, 1] su device."""
-        return torch.from_numpy(np.asarray(obs)).float().to(self.device) / 255.0
+        """(n_envs, C, 84, 84) uint8/float32 → float32 [0, 1] su device."""
+        arr = np.asarray(obs)
+        tensor = torch.from_numpy(arr).float().to(self.device)
+        if arr.dtype == np.uint8 or tensor.max().item() > 1.0:
+            tensor = tensor / 255.0
+        return tensor
 
     @torch.no_grad()
     def collect_rollouts(
@@ -91,8 +101,8 @@ class PPOAgent(BaseAgent):
         Raccoglie n_steps step da vec_env con la policy corrente.
 
         Args:
-            vec_env: SB3 VecEnv (con VecTransposeImage: obs shape (n_envs, 4, 84, 84))
-            obs:     osservazione corrente (n_envs, 4, 84, 84) uint8
+            vec_env: VecEnv custom con obs shape (n_envs, C, 84, 84)
+            obs:     osservazione corrente (n_envs, C, 84, 84) uint8/float32
 
         Returns:
             obs: osservazione dopo l'ultimo step (per bootstrapping GAE)

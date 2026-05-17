@@ -1,49 +1,64 @@
 # Space Invaders Deep RL
 
-Pipeline modulare e riproducibile per esperimenti di Deep Reinforcement Learning su Atari Space Invaders con Gymnasium.
+Progetto di Deep Reinforcement Learning su Atari `SpaceInvaders` con due pipeline di training reali:
 
----
+- `DQN` value-based con replay buffer e target network
+- `PPO` actor-critic on-policy con rollout buffer e GAE
+
+La codebase attuale e' centrata su queste due pipeline. Gli agenti `Dummy` non fanno piu' parte del progetto attivo.
+
+## Stato del progetto
+
+- Pipeline attiva: `DQN` e `PPO`
+- Ambiente target: `ALE/SpaceInvaders-v5`
+- Pipeline visiva unificata tra `DQN` e `PPO`
+- Input alla CNN: `(3 * frame_stack) x 84 x 84`
+- Logging: TensorBoard
+- Analisi risultati: script in `src/analysis/` e `scripts/compare_results.py`
 
 ## Struttura del progetto
 
-```
+```text
 space_invaders_rl/
   configs/
-    default.yaml              # Configurazione principale
-  src/
-    envs/make_env.py          # Creazione ambiente Gymnasium
-    models/
-      cnn_backbone.py         # CNN estrattore di features (Nature DQN)
-    preprocessing/
-      image_preprocessor.py  # Preprocessing RGB e Grayscale
-      masking.py              # Random screen masking
-    agents/
-      base_agent.py           # Interfaccia base agenti
-      dummy_agent.py          # Agente con azioni casuali (senza CNN)
-      cnn_dummy_agent.py      # Agente con forward pass CNN + azioni casuali
-    loops/
-      run_episode.py          # Esecuzione singolo episodio
-      evaluate.py             # Valutazione multi-episodio e multi-seed
-    logging/
-      metrics_logger.py       # Salvataggio metriche CSV/JSON
-    analysis/
-      compare_runs.py         # Confronto statistico tra run
-      plots.py                # Grafici delle performance
-    utils/
-      seeding.py              # Gestione seed riproducibili
-      config.py               # Caricamento configurazione YAML
+    config_common.yaml        # seed, env, eval, logging
+    config_dqn.yaml           # iperparametri DQN
+    config_ppo.yaml           # iperparametri PPO
+    default.yaml              # configurazione generale / sperimentale
   scripts/
-    run_dummy.py              # Script principale eseguibile
-    compare_results.py        # Script analisi risultati
+    train_dqn.py              # training DQN
+    train_ppo.py              # training PPO
+    compare_results.py        # analisi statistica dei risultati
+    quick_test.sh             # smoke test rapido
+  src/
+    agents/
+      base_agent.py
+      dqn_agent.py
+      ppo_agent.py
+    envs/
+      make_env.py
+      atari_wrappers.py
+      vec_env.py
+    models/
+      cnn_backbone.py
+      actor_critic.py
+    preprocessing/
+      image_preprocessor.py   # pipeline visiva unificata
+      masking.py
+    training/
+      replay_buffer.py
+      rollout_buffer.py
+      tb_logger.py
+    analysis/
+      compare_runs.py
+      plots.py
+    utils/
+      config.py
+      seeding.py
   tests/
-    test_env.py               # Test ambiente Gymnasium
-    test_preprocessing.py     # Test preprocessing RGB/Grayscale + masking
-    test_dummy_agent.py       # Test DummyAgent e pipeline E2E
-    test_cnn.py               # Test CNN backbone e CNNDummyAgent
-  results/                    # Output CSV/JSON (generato a runtime)
+  logs/
+  results/
 ```
-
----
 
 ## Installazione
 
@@ -51,44 +66,169 @@ space_invaders_rl/
 pip install -r requirements.txt
 ```
 
-Per gli ambienti Atari, installa le ROM:
+Per gli ambienti Atari:
 
 ```bash
 autorom --accept-license
 ```
 
----
+## Pipeline osservazioni
 
-## Utilizzo
+La pipeline di training per `DQN` e `PPO` usa lo stesso preprocessing visivo:
 
-### Eseguire una run
-
-**Con CNN (default — Milestone 2):**
-```bash
-python scripts/run_dummy.py
-python scripts/run_dummy.py --agent cnn-dummy
+```text
+frame RGB grezzo Atari
+  -> resize 84x84
+  -> rgb oppure grayscale
+  -> se grayscale: replica su 3 canali
+  -> frame stack di N frame
+  -> masking opzionale
+  -> reward clipping
+  -> tensore finale (3 * N, 84, 84)
 ```
 
-**Senza CNN — solo azioni casuali (Milestone 1):**
-```bash
-python scripts/run_dummy.py --agent dummy
+La logica `frame grezzo -> input CNN` e' centralizzata in [src/preprocessing/image_preprocessor.py](/Users/mattiasegreto/Desktop/space_invaders_rl/src/preprocessing/image_preprocessor.py) ed e' condivisa da entrambi gli algoritmi.
+
+## Architettura
+
+### DQN
+
+Pipeline principale:
+
+```text
+(3 * frame_stack, 84, 84)
+  -> CNNBackbone(in_channels=3 * frame_stack)
+  -> Linear head
+  -> Q-values per azione
 ```
 
-**Vedere il gioco a schermo:**
-```bash
-python scripts/run_dummy.py --render
+Caratteristiche:
+
+- replay buffer uniforme
+- target network con hard update
+- epsilon-greedy
+- loss Huber
+- gradient clipping
+
+### PPO
+
+Pipeline principale:
+
+```text
+(3 * frame_stack, 84, 84)
+  -> CNNBackbone(in_channels=3 * frame_stack)
+  -> policy head
+  -> value head
 ```
 
-**Opzioni principali:**
+Caratteristiche:
+
+- actor-critic con backbone condiviso
+- rollout buffer on-policy
+- GAE
+- PPO-Clip
+- env vettorizzati paralleli
+
+## Esecuzione training
+
+### DQN
+
 ```bash
-python scripts/run_dummy.py --agent cnn-dummy --episodes 5 --seeds 42 123 456
-python scripts/run_dummy.py --agent cnn-dummy --mode grayscale
-python scripts/run_dummy.py --agent cnn-dummy --masking
-python scripts/run_dummy.py --agent cnn-dummy --render --episodes 3 --seeds 1
-python scripts/run_dummy.py --agent dummy --output-format json
+python scripts/train_dqn.py
+python scripts/train_dqn.py --timesteps 1000 --device cpu
+python scripts/train_dqn.py --config configs/config_dqn.yaml --common configs/config_common.yaml
 ```
 
-### Analisi e grafici dei risultati
+### PPO
+
+```bash
+python scripts/train_ppo.py
+python scripts/train_ppo.py --timesteps 10000 --device cpu
+python scripts/train_ppo.py --config configs/config_ppo.yaml --common configs/config_common.yaml
+```
+
+## Configurazione
+
+Le configurazioni usate dal training attuale sono:
+
+- `configs/config_common.yaml`
+- `configs/config_dqn.yaml`
+- `configs/config_ppo.yaml`
+
+`configs/default.yaml` resta disponibile come file di configurazione generale per moduli standalone e sperimentazione, ma non e' il file principale usato dagli script di training correnti.
+
+### Config comune
+
+In `config_common.yaml` trovi:
+
+- `seed`
+- `env.id`
+- `preprocessing.mode`
+- `preprocessing.image_size`
+- `preprocessing.frame_stack`
+- `preprocessing.normalize`
+- `masking.enabled`
+- `masking.num_masks`
+- `masking.mask_size`
+- `masking.mask_duration`
+- `masking.apply_probability`
+- `masking.mask_value`
+- `eval.episodes`
+- `eval.results_dir`
+- `logging.tensorboard_dir`
+
+### Config DQN
+
+In `config_dqn.yaml` trovi i principali iperparametri:
+
+- `learning_rate`
+- `gamma`
+- `batch_size`
+- `replay_buffer_size`
+- `target_update_freq`
+- `epsilon_start`
+- `epsilon_end`
+- `epsilon_decay_steps`
+- `learning_starts`
+- `train_freq`
+- `total_timesteps`
+
+### Config PPO
+
+In `config_ppo.yaml` trovi i principali iperparametri:
+
+- `n_envs`
+- `n_steps`
+- `n_epochs`
+- `batch_size`
+- `learning_rate`
+- `lr_schedule`
+- `clip_range`
+- `gamma`
+- `gae_lambda`
+- `ent_coef`
+- `vf_coef`
+- `total_timesteps`
+
+## TensorBoard
+
+Per monitorare il training:
+
+```bash
+tensorboard --logdir logs/ --port 6006
+```
+
+Poi apri `http://localhost:6006`.
+
+## Risultati e analisi
+
+I trainer salvano:
+
+- log TensorBoard in `logs/dqn` e `logs/ppo`
+- modelli in `results/`
+- file risultati in `results/`
+
+Per l'analisi:
 
 ```bash
 python scripts/compare_results.py
@@ -96,122 +236,26 @@ python scripts/compare_results.py --results-dir results/ --plot-format pdf
 python scripts/compare_results.py --no-plots
 ```
 
----
+Nota: la parte di analisi e' nata inizialmente sui risultati episodici in CSV. Se usi output riassuntivi diversi, puo' servire uniformare il formato prima del confronto.
 
-## Configurazione
+## Test
 
-Tutti i parametri sono in `configs/default.yaml`.
-
-### Ambiente
-| Parametro | Default | Descrizione |
-|---|---|---|
-| `env.id` | `ALE/SpaceInvaders-v5` | ID ambiente Gymnasium |
-| `env.render_mode` | `null` | `null` o `human` |
-
-### Preprocessing
-| Parametro | Default | Descrizione |
-|---|---|---|
-| `preprocessing.mode` | `rgb` | `rgb` o `grayscale` |
-| `preprocessing.image_size` | `84` | Dimensione resize |
-| `preprocessing.frame_stack` | `1` | Frame da stackare (1 = nessuno) |
-| `preprocessing.normalize` | `true` | Normalizza pixel in [0, 1] |
-
-### CNN
-| Parametro | Default | Descrizione |
-|---|---|---|
-| `model.feature_dim` | `512` | Dimensione vettore di features in uscita |
-| `model.device` | `cpu` | `cpu`, `cuda` o `mps` |
-| `model.conv_layers` | Nature DQN | Lista layer convoluzionali (modificabile) |
-
-Architettura CNN default (Nature DQN, Mnih et al. 2015):
-```yaml
-model:
-  feature_dim: 512
-  conv_layers:
-    - out_channels: 32
-      kernel_size: 8
-      stride: 4
-    - out_channels: 64
-      kernel_size: 4
-      stride: 2
-    - out_channels: 64
-      kernel_size: 3
-      stride: 1
-```
-
-### Masking
-| Parametro | Default | Descrizione |
-|---|---|---|
-| `masking.enabled` | `false` | Abilita random screen masking |
-| `masking.num_masks` | `2` | Numero di maschere per frame |
-| `masking.mask_size` | `[20, 20]` | Dimensione di ogni maschera |
-| `masking.mask_duration` | `5` | Durata in frame |
-| `masking.apply_probability` | `0.3` | Probabilità di applicazione |
-| `masking.mask_value` | `zero` | `zero` o `mean` |
-
-### Valutazione
-| Parametro | Default | Descrizione |
-|---|---|---|
-| `evaluation.num_episodes` | `10` | Episodi per seed |
-| `evaluation.seeds` | `[42, 123, 456, 789, 1000]` | Lista seed |
-| `evaluation.results_format` | `csv` | `csv` o `json` |
-
----
-
-## Architettura CNN
-
-La CNN è un modulo indipendente dall'agente (`src/models/cnn_backbone.py`). Riceve l'osservazione preprocessata e produce un vettore di features:
-
-```
-Input: (B, 3, 84, 84)  float32  valori in [0, 1]
-  → Conv2d(3→32,  kernel=8, stride=4) + ReLU
-  → Conv2d(32→64, kernel=4, stride=2) + ReLU
-  → Conv2d(64→64, kernel=3, stride=1) + ReLU
-  → Flatten
-  → Linear → (B, 512)
-Output: (B, 512)  float32
-```
-
-Il `CNNDummyAgent` esegue il forward pass e salva le features in `agent.last_features`, ma sceglie ancora azioni casuali. Gli agenti delle milestone successive (DQN, PPO) useranno queste features per imparare una policy.
-
----
-
-## Eseguire i test
+Smoke test senza training:
 
 ```bash
-# Tutti i test
-python -m pytest tests/ -v
-
-# Solo CNN (Milestone 2)
-python -m pytest tests/test_cnn.py -v
-
-# Solo preprocessing
-python -m pytest tests/test_preprocessing.py -v
-
-# Solo DummyAgent e pipeline
-python -m pytest tests/test_dummy_agent.py -v
-
-# Solo ambiente (richiede ALE installato)
-python -m pytest tests/test_env.py -v
+pytest -q tests/test_preprocessing.py tests/test_visual_pipeline.py
 ```
 
-### Copertura test
+Questi test verificano:
 
-| File | Test | Cosa verifica |
-|---|---|---|
-| `test_cnn.py` | 17 | CNN forward pass, shape, dtype, NaN, CNNDummyAgent, pipeline E2E |
-| `test_preprocessing.py` | 14 | RGB/Grayscale shape, normalizzazione, frame stacking, masking |
-| `test_dummy_agent.py` | 12 | DummyAgent, riproducibilità, pipeline E2E RGB e Grayscale |
-| `test_env.py` | 4 | Creazione ambiente, reset, step, action space |
+- preprocessing `rgb` e `grayscale`
+- `frame_stack` configurabile
+- masking opzionale
+- forward di `DQNAgent` e `PPOAgent` senza addestramento
 
----
+Per i test che richiedono Atari/Gymnasium completo, installa tutte le dipendenze e le ROM prima di eseguirli.
 
-## Roadmap
+## Roadmap tecnica
 
-| Milestone | Stato | Descrizione |
-|---|---|---|
-| 1 | ✅ | Pipeline + DummyAgent + preprocessing + masking |
-| 2 | ✅ | CNN backbone (Nature DQN) + CNNDummyAgent |
-| 3 | 🔜 | Agente DQN che impara a giocare |
-| 4 | 🔜 | Confronto RGB vs Grayscale con analisi statistica |
-| 5 | 🔜 | Esperimenti con random screen masking |
+- riallineare gli import di package e i test automatici
+- uniformare meglio il formato dei risultati per il confronto tra run

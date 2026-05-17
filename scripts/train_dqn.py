@@ -23,49 +23,39 @@ import gymnasium as gym
 import ale_py
 from tqdm import tqdm
 
-from stable_baselines3.common.atari_wrappers import AtariWrapper
-
-from src.utils.config import load_config, merge_configs
+from src.utils.config import load_config
 from src.utils.seeding import set_global_seed
 from src.agents.dqn_agent import DQNAgent
 from src.training.replay_buffer import ReplayBuffer
 from src.training.tb_logger import TBLogger
+from src.envs.atari_wrappers import make_atari_env
 
 gym.register_envs(ale_py)
 
 
-def make_dqn_env(env_id: str, seed: int) -> gym.Env:
-    """
-    Crea env con wrapper SB3 Atari + FrameStack(4).
-
-    Pipeline (identica per DQN e PPO, garantisce confronto equo):
-      NoopReset → MaxAndSkip(4) → EpisodicLife → FireReset
-      → WarpFrame(84x84 gray) → ClipReward → FrameStack(4)
-
-    Output shape: (4, 84, 84) uint8 grayscale.
-    """
-    env = gym.make(env_id)
-    env = AtariWrapper(env, clip_reward=True)
-    # gymnasium 1.x: FrameStack rinominato FrameStackObservation
-    env = gym.wrappers.FrameStackObservation(env, 4)
-    return env
-
-
 def obs_to_numpy(obs) -> np.ndarray:
-    """Converte LazyFrames/array a (4, 84, 84) uint8."""
-    arr = np.array(obs)
-    # WarpFrame → (84,84,1), FrameStack → (4,84,84,1) o (4,84,84)
-    if arr.ndim == 4 and arr.shape[-1] == 1:
-        arr = arr.squeeze(-1)   # (4,84,84)
-    return arr.astype(np.uint8)
+    """Converte l'osservazione della pipeline unificata in np.ndarray."""
+    return np.asarray(obs)
 
 
-def evaluate_greedy(agent: DQNAgent, env_id: str, seed: int, n_episodes: int) -> list:
+def evaluate_greedy(
+    agent: DQNAgent,
+    env_id: str,
+    seed: int,
+    n_episodes: int,
+    preprocessing_kwargs: dict,
+    masking_kwargs: dict,
+) -> list:
     """Valuta agente greedy (no epsilon) per n_episodes episodi."""
     agent.set_training_mode(False)
     rewards = []
     for ep in range(n_episodes):
-        env = make_dqn_env(env_id, seed=seed + ep)
+        env = make_atari_env(
+            env_id,
+            seed=seed + ep,
+            preprocessing_kwargs=preprocessing_kwargs,
+            masking_kwargs=masking_kwargs,
+        )
         obs, _ = env.reset()
         ep_reward = 0.0
         done = False
@@ -97,6 +87,8 @@ def main():
     eval_episodes = cfg_common.eval.episodes
     results_dir = Path(cfg_common.eval.results_dir)
     tb_dir = cfg_common.logging.tensorboard_dir
+    preprocessing_kwargs = cfg_common.preprocessing.to_dict()
+    masking_kwargs = cfg_common.masking.to_dict()
 
     dqn = cfg_dqn.dqn
     total_timesteps = args.timesteps if args.timesteps is not None else dqn.total_timesteps
@@ -110,8 +102,14 @@ def main():
 
     # Start making env
 
-    env = make_dqn_env(env_id, seed)
+    env = make_atari_env(
+        env_id,
+        seed=seed,
+        preprocessing_kwargs=preprocessing_kwargs,
+        masking_kwargs=masking_kwargs,
+    )
     n_actions = env.action_space.n
+    obs_shape = env.observation_space.shape
 
     agent = DQNAgent(
         n_actions=n_actions,
@@ -122,11 +120,12 @@ def main():
         epsilon_end=dqn.epsilon_end,
         epsilon_decay_steps=dqn.epsilon_decay_steps,
         device=device,
+        in_channels=obs_shape[0],
     )
 
     buffer = ReplayBuffer(
         capacity=dqn.replay_buffer_size,
-        obs_shape=(4, 84, 84),
+        obs_shape=obs_shape,
         device=device,
     )
 
@@ -150,9 +149,7 @@ def main():
     )
     last_loss = float("nan")
     for step in pbar:
-        # Reduce the observation if it has the greyscale channel at the end which is useless (4x84x84x1)
         obs_np = obs_to_numpy(obs)
-        # Obs now should be (4x84x84) which are 4 stacked frames reduced by the atari wrapper
 
         action = agent.act(obs_np)
 
@@ -224,7 +221,14 @@ def main():
 
     # Evaluation greedy post-training
     print(f"[DQN] Evaluation greedy su {eval_episodes} episodi...")
-    eval_rewards = evaluate_greedy(agent, env_id, seed=seed + 10000, n_episodes=eval_episodes)
+    eval_rewards = evaluate_greedy(
+        agent,
+        env_id,
+        seed=seed + 10000,
+        n_episodes=eval_episodes,
+        preprocessing_kwargs=preprocessing_kwargs,
+        masking_kwargs=masking_kwargs,
+    )
 
     results = {
         "agent": "dqn",

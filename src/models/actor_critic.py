@@ -2,7 +2,7 @@
 Actor-Critic network per PPO su Atari.
 
 Architettura (backbone CNN condiviso, paper PPO Schulman et al. 2017):
-  CNNBackbone(in_channels=4) → feature_dim
+  CNNBackbone(in_channels=C) → feature_dim
   → Policy head: Linear(feature_dim, n_actions)  — logits distribuzione π(a|s)
   → Value  head: Linear(feature_dim, 1)           — stima scalare V(s)
 
@@ -23,14 +23,14 @@ class ActorCriticNet(nn.Module):
     """
     Rete Actor-Critic con backbone CNN condiviso tra policy e value.
 
-    Input:  (B, 4, 84, 84) float32 in [0, 1]
+    Input:  (B, C, 84, 84) float32 in [0, 1]
     Policy: distribuzione categorica π(a|s) su n_actions
     Value:  scalare V(s) per ogni elemento del batch
     """
 
-    def __init__(self, n_actions: int, feature_dim: int = 512):
+    def __init__(self, n_actions: int, feature_dim: int = 512, in_channels: int = 12):
         super().__init__()
-        self.backbone = CNNBackbone(in_channels=4, feature_dim=feature_dim)
+        self.backbone = CNNBackbone(in_channels=in_channels, feature_dim=feature_dim)
         self.policy_head = nn.Linear(feature_dim, n_actions)
         self.value_head = nn.Linear(feature_dim, 1)
 
@@ -42,7 +42,7 @@ class ActorCriticNet(nn.Module):
     def forward(self, x: torch.Tensor):
         """
         Args:
-            x: (B, 4, 84, 84) float32
+            x: (B, C, 84, 84) float32
         Returns:
             logits: (B, n_actions), value: (B,)
         """
@@ -54,7 +54,7 @@ class ActorCriticNet(nn.Module):
         Campiona azione (o usa quella fornita) e restituisce log_prob, entropy, value.
 
         Args:
-            x:      (B, 4, 84, 84) float32
+            x:      (B, C, 84, 84) float32
             action: (B,) long — se fornita, calcola log_prob per queste azioni (update)
 
         Returns:

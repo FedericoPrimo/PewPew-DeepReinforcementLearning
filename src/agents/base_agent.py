@@ -50,8 +50,7 @@ class BaseAgent(ABC):
     def update(self, *args, **kwargs) -> None:
         """
         Aggiorna i parametri dell'agente (es. pesi della rete).
-        Placeholder per futuri agenti allenabili.
-        Per il DummyAgent non fa nulla.
+        Placeholder per agenti che non implementano training diretto in questa base class.
         """
         pass
 

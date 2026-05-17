@@ -1,7 +1,7 @@
 """
 Replay buffer uniforme per DQN.
 
-Storage uint8 per ridurre memoria: 100k frame (4, 84, 84) uint8 ≈ 2.8 GB.
+Storage uint8 per ridurre memoria: 100k frame (C, 84, 84) con C configurabile.
 Normalizzazione a float32 avviene al momento del sample, non dello storage.
 """
 
@@ -22,7 +22,7 @@ class ReplayBuffer:
     def __init__(
         self,
         capacity: int,
-        obs_shape: tuple = (4, 84, 84),
+        obs_shape: tuple = (12, 84, 84),
         device: str = "cpu",
     ):
         """

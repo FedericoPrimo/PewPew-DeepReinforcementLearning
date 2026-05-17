@@ -62,7 +62,7 @@ def main() -> None:
     df = load_results(results_dir)
 
     if df.empty:
-        print("Nessun risultato trovato. Esegui prima scripts/run_dummy.py")
+        print("Nessun risultato trovato. Esegui prima uno script di training, ad esempio scripts/train_dqn.py o scripts/train_ppo.py")
         sys.exit(0)
 
     # Statistiche

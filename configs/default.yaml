@@ -34,7 +34,7 @@ masking:
 evaluation:
   num_episodes: 10
   seeds: [42, 123, 456, 789, 1000]
-  agent: "CNNDummyAgent"      # aggiornato a CNNDummyAgent
+  agent: "DQNAgent"
   save_results: true
   results_dir: "results"
   results_format: "csv"

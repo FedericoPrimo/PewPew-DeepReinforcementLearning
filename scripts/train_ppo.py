@@ -45,9 +45,21 @@ from src.training.tb_logger import TBLogger
 from src.envs.vec_env import make_ppo_vec_env, make_eval_vec_env
 
 
-def evaluate_greedy(agent: PPOAgent, env_id: str, seed: int, n_episodes: int) -> list:
+def evaluate_greedy(
+    agent: PPOAgent,
+    env_id: str,
+    seed: int,
+    n_episodes: int,
+    preprocessing_kwargs: dict,
+    masking_kwargs: dict,
+) -> list:
     """Valuta policy greedy (deterministica) su n_episodes episodi singoli."""
-    eval_env = make_eval_vec_env(env_id, seed=seed)
+    eval_env = make_eval_vec_env(
+        env_id,
+        seed=seed,
+        preprocessing_kwargs=preprocessing_kwargs,
+        masking_kwargs=masking_kwargs,
+    )
     obs = eval_env.reset()
     rewards = []
     for _ in range(n_episodes):
@@ -80,6 +92,8 @@ def main():
     eval_episodes = cfg_common.eval.episodes
     results_dir = Path(cfg_common.eval.results_dir)
     tb_dir = cfg_common.logging.tensorboard_dir
+    preprocessing_kwargs = cfg_common.preprocessing.to_dict()
+    masking_kwargs = cfg_common.masking.to_dict()
 
     ppo = cfg_ppo.ppo
     total_timesteps = args.timesteps if args.timesteps is not None else ppo.total_timesteps
@@ -94,8 +108,15 @@ def main():
     print(f"[PPO] n_envs={ppo.n_envs} n_steps={ppo.n_steps} → {steps_per_iter} step/iter")
     print(f"[PPO] n_epochs={ppo.n_epochs} batch_size={ppo.batch_size}")
 
-    vec_env = make_ppo_vec_env(env_id, n_envs=ppo.n_envs, seed=seed)
+    vec_env = make_ppo_vec_env(
+        env_id,
+        n_envs=ppo.n_envs,
+        seed=seed,
+        preprocessing_kwargs=preprocessing_kwargs,
+        masking_kwargs=masking_kwargs,
+    )
     tb_logger = TBLogger(log_dir=str(Path(tb_dir) / "ppo"))
+    obs_shape = vec_env.observation_space.shape
 
     agent = PPOAgent(
         n_actions=vec_env.action_space.n,
@@ -111,6 +132,7 @@ def main():
         vf_coef=ppo.vf_coef,
         device=device,
         feature_dim=feature_dim,
+        obs_shape=obs_shape,
     )
 
     obs = vec_env.reset()
@@ -180,7 +202,14 @@ def main():
     print(f"[PPO] Modello salvato: {model_path}")
 
     print(f"[PPO] Evaluation greedy su {eval_episodes} episodi...")
-    eval_rewards = evaluate_greedy(agent, env_id, seed=seed + 10000, n_episodes=eval_episodes)
+    eval_rewards = evaluate_greedy(
+        agent,
+        env_id,
+        seed=seed + 10000,
+        n_episodes=eval_episodes,
+        preprocessing_kwargs=preprocessing_kwargs,
+        masking_kwargs=masking_kwargs,
+    )
 
     results = {
         "agent": "ppo",

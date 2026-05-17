@@ -9,8 +9,6 @@ SubprocVecEnv: n_envs envs each in a separate subprocess (true parallelism).
 Interface (both classes):
   reset() → np.ndarray (n_envs, C, H, W) uint8
   step(actions) → (obs, rewards, dones, infos)
-
-Observations transposed (H, W, C) → (C, H, W) for channels-first CNN input.
 Auto-reset on done: returned obs is already the first frame of the new episode.
 
 macOS note: default start method is 'spawn' (not 'fork'), so:
@@ -70,13 +68,26 @@ def _worker(conn: mp.connection.Connection, env_fn: Callable[[], gym.Env]) -> No
 class _AtariEnvFactory:
     """Picklable factory — lambdas with closures are not picklable under spawn."""
 
-    def __init__(self, env_id: str, seed: int):
+    def __init__(
+        self,
+        env_id: str,
+        seed: int,
+        preprocessing_kwargs: dict | None = None,
+        masking_kwargs: dict | None = None,
+    ):
         self.env_id = env_id
         self.seed = seed
+        self.preprocessing_kwargs = preprocessing_kwargs or {}
+        self.masking_kwargs = masking_kwargs or {}
 
     def __call__(self) -> gym.Env:
         from src.envs.atari_wrappers import make_atari_env
-        return make_atari_env(self.env_id, self.seed)
+        return make_atari_env(
+            self.env_id,
+            self.seed,
+            preprocessing_kwargs=self.preprocessing_kwargs,
+            masking_kwargs=self.masking_kwargs,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -93,7 +104,7 @@ class DummyVecEnv:
         self.action_space = self.envs[0].action_space
 
     def reset(self) -> np.ndarray:
-        return np.stack([env.reset()[0].transpose(2, 0, 1) for env in self.envs])
+        return np.stack([env.reset()[0] for env in self.envs])
 
     def step(self, actions: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray, list]:
         obs_list, rewards, dones, infos = [], [], [], []
@@ -102,7 +113,7 @@ class DummyVecEnv:
             done = terminated or truncated
             if done:
                 obs, _ = env.reset()
-            obs_list.append(obs.transpose(2, 0, 1))
+            obs_list.append(obs)
             rewards.append(reward)
             dones.append(done)
             infos.append(info)
@@ -159,7 +170,7 @@ class SubprocVecEnv:
         for conn in self._parent_conns:
             conn.send(("reset", None))
         obs_list = [conn.recv() for conn in self._parent_conns]
-        return np.stack([obs.transpose(2, 0, 1) for obs in obs_list])
+        return np.stack(obs_list)
 
     def step(self, actions: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray, list]:
         # Send all actions first (async), then collect results
@@ -168,7 +179,7 @@ class SubprocVecEnv:
         results = [conn.recv() for conn in self._parent_conns]
         obs_list, rewards, dones, infos = zip(*results)
         return (
-            np.stack([obs.transpose(2, 0, 1) for obs in obs_list]),
+            np.stack(obs_list),
             np.array(rewards, dtype=np.float32),
             np.array(dones, dtype=bool),
             list(infos),
@@ -190,15 +201,41 @@ class SubprocVecEnv:
 # Factory
 # ---------------------------------------------------------------------------
 
-def make_ppo_vec_env(env_id: str, n_envs: int, seed: int) -> SubprocVecEnv:
+def make_ppo_vec_env(
+    env_id: str,
+    n_envs: int,
+    seed: int,
+    preprocessing_kwargs: dict | None = None,
+    masking_kwargs: dict | None = None,
+) -> SubprocVecEnv:
     """
     Build a SubprocVecEnv of n_envs Atari envs with full preprocessing.
     Each env gets seed + i for diverse initial states.
     """
-    env_fns = [_AtariEnvFactory(env_id, seed + i) for i in range(n_envs)]
+    env_fns = [
+        _AtariEnvFactory(
+            env_id,
+            seed + i,
+            preprocessing_kwargs=preprocessing_kwargs,
+            masking_kwargs=masking_kwargs,
+        )
+        for i in range(n_envs)
+    ]
     return SubprocVecEnv(env_fns)
 
 
-def make_eval_vec_env(env_id: str, seed: int) -> DummyVecEnv:
+def make_eval_vec_env(
+    env_id: str,
+    seed: int,
+    preprocessing_kwargs: dict | None = None,
+    masking_kwargs: dict | None = None,
+) -> DummyVecEnv:
     """Single-env DummyVecEnv for greedy evaluation."""
-    return DummyVecEnv([_AtariEnvFactory(env_id, seed)])
+    return DummyVecEnv([
+        _AtariEnvFactory(
+            env_id,
+            seed,
+            preprocessing_kwargs=preprocessing_kwargs,
+            masking_kwargs=masking_kwargs,
+        )
+    ])

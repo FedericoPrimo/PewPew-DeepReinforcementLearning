@@ -1,18 +1,24 @@
 """
-Preprocessing delle osservazioni visive dell'ambiente.
+Preprocessing unificato delle osservazioni visive.
 
-Supporta due modalità:
-- RGB: resize + normalizzazione
-- Grayscale: conversione BN + resize + normalizzazione + replica su 3 canali
-
-Il formato finale è sempre: (C, H, W) con C=3 (o C=3*frame_stack)
-così da mantenere invariata l'architettura della CNN.
+Pipeline:
+  frame RGB grezzo -> resize -> conversione opzionale in grayscale
+  -> replica a 3 canali se grayscale -> frame stack -> masking opzionale
+  -> output finale (C, H, W) con C = 3 * frame_stack
 """
 
-import numpy as np
-import cv2
 from collections import deque
-from typing import Tuple, Optional
+from typing import Tuple
+
+import numpy as np
+from PIL import Image
+
+from src.preprocessing.masking import RandomScreenMasker
+
+try:
+    import gymnasium as gym
+except ModuleNotFoundError:  # pragma: no cover - dipendenza opzionale per i wrapper
+    gym = None
 
 
 class ImagePreprocessor:
@@ -23,7 +29,7 @@ class ImagePreprocessor:
         mode: "rgb" o "grayscale"
         image_size: dimensione target (es. 84 → 84x84)
         frame_stack: numero di frame da stackare (1 = nessuno stacking)
-        normalize: se True, normalizza i pixel in [0.0, 1.0]
+        normalize: se True, normalizza i pixel in [0.0, 1.0], altrimenti mantiene uint8
     """
 
     VALID_MODES = ("rgb", "grayscale")
@@ -50,7 +56,6 @@ class ImagePreprocessor:
         # Buffer circolare per il frame stacking
         self._frame_buffer: deque = deque(maxlen=frame_stack)
 
-        # Shape di un singolo frame preprocessato (C, H, W)
         self._single_frame_shape: Tuple[int, int, int] = (3, image_size, image_size)
 
     @property
@@ -62,6 +67,11 @@ class ImagePreprocessor:
         """
         channels = 3 * self.frame_stack
         return (channels, self.image_size, self.image_size)
+
+    @property
+    def output_dtype(self):
+        """Dtype finale dell'osservazione preprocessata."""
+        return np.float32 if self.normalize else np.uint8
 
     def reset(self) -> None:
         """Svuota il buffer dei frame. Da chiamare all'inizio di ogni episodio."""
@@ -85,7 +95,6 @@ class ImagePreprocessor:
         while len(self._frame_buffer) < self.frame_stack:
             self._frame_buffer.append(frame)
 
-        # Stacking lungo l'asse dei canali: (3*k, H, W)
         stacked = np.concatenate(list(self._frame_buffer), axis=0)
         return stacked
 
@@ -97,33 +106,25 @@ class ImagePreprocessor:
             observation: Array HxWxC uint8.
 
         Returns:
-            Array (3, H, W) float32.
+            Array (3, H, W) uint8 o float32.
         """
         if self.mode == "grayscale":
             frame = self._to_grayscale(observation)
         else:
             frame = observation.copy()
 
-        # Resize: OpenCV vuole (W, H)
-        frame = cv2.resize(
-            frame,
-            (self.image_size, self.image_size),
-            interpolation=cv2.INTER_AREA,
-        )
+        frame = self._resize_frame(frame)
 
-        # Normalizzazione
+        # Porta in formato (C, H, W) con contratto fisso a 3 canali per frame
+        if frame.ndim == 2:
+            frame = np.stack([frame, frame, frame], axis=0)
+        else:
+            frame = np.transpose(frame, (2, 0, 1))
+
         if self.normalize:
             frame = frame.astype(np.float32) / 255.0
         else:
-            frame = frame.astype(np.float32)
-
-        # Porta in formato (C, H, W)
-        if frame.ndim == 2:
-            # Grayscale → (H, W) → replica su 3 canali → (3, H, W)
-            frame = np.stack([frame, frame, frame], axis=0)
-        else:
-            # RGB: (H, W, C) → (C, H, W)
-            frame = np.transpose(frame, (2, 0, 1))
+            frame = frame.astype(np.uint8)
 
         return frame
 
@@ -138,10 +139,58 @@ class ImagePreprocessor:
         Returns:
             Array HxW uint8.
         """
-        # OpenCV si aspetta BGR, ma l'immagine Gymnasium è RGB
-        # Usiamo la formula luminance-aware di cv2.cvtColor
-        gray = cv2.cvtColor(observation, cv2.COLOR_RGB2GRAY)
-        return gray
+        return np.asarray(Image.fromarray(observation, mode="RGB").convert("L"), dtype=np.uint8)
+
+    def _resize_frame(self, frame: np.ndarray) -> np.ndarray:
+        """Resize via Pillow per ridurre dipendenze runtime."""
+        image = Image.fromarray(frame)
+        resized = image.resize((self.image_size, self.image_size), Image.Resampling.BILINEAR)
+        return np.asarray(resized)
+
+
+if gym is not None:
+    class ImagePreprocessingWrapper(gym.Wrapper):
+        """
+        Wrapper Gym che applica l'intera pipeline visiva unificata.
+
+        La logica di preprocessing e masking vive qui in modo condiviso tra DQN e PPO.
+        """
+
+        def __init__(
+            self,
+            env: gym.Env,
+            preprocessor: ImagePreprocessor,
+            masker: RandomScreenMasker | None = None,
+        ):
+            super().__init__(env)
+            self.preprocessor = preprocessor
+            self.masker = masker or RandomScreenMasker(enabled=False)
+            dtype = self.preprocessor.output_dtype
+            high = 1.0 if dtype == np.float32 else 255
+            self.observation_space = gym.spaces.Box(
+                low=0,
+                high=high,
+                shape=self.preprocessor.observation_shape,
+                dtype=dtype,
+            )
+
+        def _process(self, observation: np.ndarray) -> np.ndarray:
+            processed = self.preprocessor.process(observation)
+            return self.masker.apply(processed)
+
+        def reset(self, **kwargs):
+            self.preprocessor.reset()
+            self.masker.reset()
+            observation, info = self.env.reset(**kwargs)
+            return self._process(observation), info
+
+        def step(self, action):
+            observation, reward, terminated, truncated, info = self.env.step(action)
+            return self._process(observation), reward, terminated, truncated, info
+else:
+    class ImagePreprocessingWrapper:  # pragma: no cover - fallback per import senza gymnasium
+        def __init__(self, *args, **kwargs):
+            raise ModuleNotFoundError("gymnasium is required to use ImagePreprocessingWrapper")
 
 
 def build_preprocessor_from_config(config) -> ImagePreprocessor:

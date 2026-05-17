@@ -65,10 +65,11 @@ class TestImagePreprocessor:
         assert result.max() <= 1.0, f"Massimo fuori range: {result.max()}"
 
     def test_no_normalization(self, fake_obs):
-        """Senza normalizzazione i valori sono in [0, 255]."""
+        """Senza normalizzazione i valori sono uint8 in [0, 255]."""
         prep = ImagePreprocessor(mode="rgb", image_size=84, normalize=False)
         result = prep.process(fake_obs)
         assert result.max() > 1.0, "Senza normalizzazione i valori devono essere > 1"
+        assert result.dtype == np.uint8
 
     def test_custom_image_size(self, fake_obs):
         """Funziona con dimensioni diverse da 84."""
@@ -104,8 +105,8 @@ class TestImagePreprocessor:
         with pytest.raises(ValueError):
             ImagePreprocessor(frame_stack=0)
 
-    def test_dtype_float32(self, fake_obs):
-        """L'output è sempre float32."""
+    def test_dtype_float32_when_normalized(self, fake_obs):
+        """Con normalizzazione attiva l'output è float32."""
         prep = ImagePreprocessor(mode="rgb", image_size=84)
         result = prep.process(fake_obs)
         assert result.dtype == np.float32

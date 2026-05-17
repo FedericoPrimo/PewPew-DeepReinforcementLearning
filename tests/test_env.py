@@ -33,7 +33,7 @@ def config():
         "evaluation": {
             "num_episodes": 1,
             "seeds": [42],
-            "agent": "DummyAgent",
+            "agent": "DQNAgent",
             "save_results": False,
             "results_dir": "results",
             "results_format": "csv",
