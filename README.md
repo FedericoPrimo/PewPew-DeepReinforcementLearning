@@ -87,7 +87,7 @@ frame RGB grezzo Atari
   -> tensore finale (3 * N, 84, 84)
 ```
 
-La logica `frame grezzo -> input CNN` e' centralizzata in [src/preprocessing/image_preprocessor.py](/Users/mattiasegreto/Desktop/space_invaders_rl/src/preprocessing/image_preprocessor.py) ed e' condivisa da entrambi gli algoritmi.
+La logica `frame grezzo -> input CNN` e' centralizzata in [src/preprocessing/image_preprocessor.py](src/preprocessing/image_preprocessor.py) ed e' condivisa da entrambi gli algoritmi.
 
 ## Architettura
 
@@ -240,20 +240,48 @@ Nota: la parte di analisi e' nata inizialmente sui risultati episodici in CSV. S
 
 ## Test
 
-Smoke test senza training:
+### Come testare l'ultima versione
+
+1. Installa le dipendenze:
+
+```bash
+pip install -r requirements.txt
+```
+
+2. Installa le ROM Atari, se non sono gia' presenti:
+
+```bash
+autorom --accept-license
+```
+
+3. Esegui gli smoke test veloci, che non fanno training completo:
 
 ```bash
 pytest -q tests/test_preprocessing.py tests/test_visual_pipeline.py
 ```
 
-Questi test verificano:
+4. Se vuoi validare anche la creazione dell'ambiente Atari locale, lancia il test dedicato:
+
+```bash
+pytest -q tests/test_env.py
+```
+
+5. Per un controllo end-to-end della versione corrente, usa il quick test orchestrato:
+
+```bash
+./scripts/quick_test.sh 1000 cpu --no-tb
+```
+
+Questi controlli coprono:
 
 - preprocessing `rgb` e `grayscale`
 - `frame_stack` configurabile
 - masking opzionale
 - forward di `DQNAgent` e `PPOAgent` senza addestramento
+- creazione e step dell'ambiente `ALE/SpaceInvaders-v5`
+- run rapido di training DQN + PPO sulla configurazione corrente
 
-Per i test che richiedono Atari/Gymnasium completo, installa tutte le dipendenze e le ROM prima di eseguirli.
+Nota: `tests/test_env.py` richiede `gymnasium`, `ale-py` e le ROM Atari installate. Se vuoi solo verificare la pipeline Python senza dipendenze Atari complete, basta lo smoke test sui file di preprocessing e visual pipeline.
 
 ## Roadmap tecnica
 

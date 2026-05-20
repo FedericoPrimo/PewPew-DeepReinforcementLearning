@@ -73,7 +73,7 @@ class TestImagePreprocessor:
 
     def test_custom_image_size(self, fake_obs):
         """Funziona con dimensioni diverse da 84."""
-        prep = ImagePreprocessor(mode="rgb", image_size=64)
+        prep = ImagePreprocessor(mode="rgb", image_size=64, frame_stack=1)
         result = prep.process(fake_obs)
         assert result.shape == (3, 64, 64)
 

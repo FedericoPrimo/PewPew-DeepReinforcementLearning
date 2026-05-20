@@ -38,7 +38,7 @@ class ImagePreprocessor:
         self,
         mode: str = "rgb",
         image_size: int = 84,
-        frame_stack: int = 1,
+        frame_stack: int = 4,
         normalize: bool = True,
     ):
         if mode not in self.VALID_MODES:

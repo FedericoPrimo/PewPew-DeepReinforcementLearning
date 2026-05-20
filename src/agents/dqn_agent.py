@@ -80,6 +80,9 @@ class DQNAgent(BaseAgent):
         self.optimizer = torch.optim.Adam(self.q_network.parameters(), lr=learning_rate)
 
     def _obs_to_tensor(self, observation: np.ndarray) -> torch.Tensor:
+        """
+        Conversion and normalization for training stability
+        """
         obs = np.asarray(observation)
         tensor = torch.from_numpy(obs).float().unsqueeze(0).to(self.device)
         if obs.dtype == np.uint8 or tensor.max().item() > 1.0:
