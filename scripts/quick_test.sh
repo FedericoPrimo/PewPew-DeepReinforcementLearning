@@ -2,8 +2,8 @@
 # Quick-test orchestrator: training DQN + PPO con barre di progresso visibili,
 # poi confronto e TensorBoard.
 #
-# Default: sequenziale (DQN poi PPO) — barre di caricamento visibili in tempo reale.
-# Modalità --parallel: i due training in background con log redirect (più veloce, no progress bar).
+# Default: sequenziale (DQN poi PPO) â€” barre di caricamento visibili in tempo reale.
+# ModalitÃ  --parallel: i due training in background con log redirect (piÃ¹ veloce, no progress bar).
 #
 # Uso:
 #   ./scripts/quick_test.sh                  # default: 1000 step, cpu, sequenziale
@@ -29,12 +29,12 @@ LOG_DIR="results/quick_test_logs"
 mkdir -p "$LOG_DIR"
 
 echo "========================================================"
-echo "  QUICK TEST — DQN vs PPO"
+echo "  QUICK TEST â€” DQN vs PPO"
 echo "  timesteps=$TIMESTEPS | device=$DEVICE | mode=$([[ $PARALLEL == true ]] && echo parallel || echo sequential)"
 echo "========================================================"
 
 if [[ "$PARALLEL" == "true" ]]; then
-    # Modalità parallela: background + log redirect (no progress bar in terminale)
+    # ModalitÃ  parallela: background + log redirect (no progress bar in terminale)
     echo "[1/3] Training DQN + PPO in parallelo (log: $LOG_DIR/)..."
     python scripts/train_dqn.py --timesteps "$TIMESTEPS" --device "$DEVICE" \
         > "$LOG_DIR/dqn.log" 2>&1 &
@@ -65,7 +65,7 @@ if [[ "$PARALLEL" == "true" ]]; then
         exit 1
     fi
 else
-    # Modalità sequenziale: foreground con barre di progresso visibili
+    # ModalitÃ  sequenziale: foreground con barre di progresso visibili
     echo ""
     echo "[1a/3] Training DQN (barra di progresso live)..."
     python scripts/train_dqn.py --timesteps "$TIMESTEPS" --device "$DEVICE"
