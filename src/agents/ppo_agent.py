@@ -84,6 +84,7 @@ class PPOAgent(BaseAgent):
             obs_shape=obs_shape,
             device=device,
         )
+        self._episode_rewards = np.zeros(n_envs, dtype=np.float32)
 
     def _to_tensor(self, obs: np.ndarray) -> torch.Tensor:
         """(n_envs, C, 84, 84) uint8/float32 → float32 [0, 1] su device."""
@@ -120,12 +121,13 @@ class PPOAgent(BaseAgent):
             log_probs_np = log_probs.cpu().numpy()
             values_np = values.cpu().numpy()
 
-            next_obs, rewards, dones, infos = vec_env.step(actions_np)
+            next_obs, rewards, dones, _ = vec_env.step(actions_np)
 
-            # Episodi completati: SB3 Monitor aggiunge 'episode' a info quando done
-            for i, (done, info) in enumerate(zip(dones, infos)):
-                if done and "episode" in info:
-                    ep_rewards.append(float(info["episode"]["r"]))
+            self._episode_rewards += rewards
+            for i, done in enumerate(dones):
+                if done:
+                    ep_rewards.append(float(self._episode_rewards[i]))
+                    self._episode_rewards[i] = 0.0
 
             self.buffer.add(
                 obs=np.asarray(obs),
@@ -203,7 +205,7 @@ class PPOAgent(BaseAgent):
         return int(logits.argmax(dim=1).item())
 
     def reset(self) -> None:
-        pass
+        self._episode_rewards.fill(0.0)
 
     def save(self, path: str) -> None:
         torch.save({

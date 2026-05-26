@@ -49,6 +49,4 @@ results/
 
 
 # Models
-!models_checkpoints/
-!models_checkpoints/Stable-v1_25_05_2026/
-!models_checkpoints/Stable-v1_25_05_2026/**
+!models_checkpoints/**
