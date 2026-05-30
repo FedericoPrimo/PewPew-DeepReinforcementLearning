@@ -47,6 +47,9 @@ results/
 *.swp
 *.swo
 
+# Local notes
+sweep_plan_notes.md
+
 
 # Models
 !models_checkpoints/**
