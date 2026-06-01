@@ -89,21 +89,28 @@ class RolloutBuffer:
             self.advantages[t] = gae
         self.returns = self.advantages + self.values
 
-    def get_minibatches(self, batch_size: int) -> Iterator[Dict[str, torch.Tensor]]:
+    def get_minibatches(
+        self,
+        batch_size: int,
+        normalize_advantage: bool = True,
+    ) -> Iterator[Dict[str, torch.Tensor]]:
         """
         Flatten (n_steps × n_envs), shuffle, itera su minibatch di batch_size.
 
-        Advantages normalizzati a media 0 e std 1 per ridurre varianza durante update.
+        Advantages normalizzati opzionalmente a media 0 e std 1 per ridurre
+        varianza durante update.
         """
         total = self.n_steps * self.n_envs
         indices = np.random.permutation(total)
 
         flat_adv = self.advantages.reshape(-1)
-        flat_adv = (flat_adv - flat_adv.mean()) / (flat_adv.std() + 1e-8)
+        if normalize_advantage:
+            flat_adv = (flat_adv - flat_adv.mean()) / (flat_adv.std() + 1e-8)
 
         flat_obs = self.obs.reshape(total, *self.obs_shape)
         flat_actions = self.actions.reshape(total)
         flat_returns = self.returns.reshape(total)
+        flat_values = self.values.reshape(total)
         flat_log_probs = self.log_probs.reshape(total)
 
         for start in range(0, total, batch_size):
@@ -112,6 +119,7 @@ class RolloutBuffer:
                 "obs": torch.from_numpy(flat_obs[idx]).float().to(self.device) / 255.0,
                 "actions": torch.from_numpy(flat_actions[idx]).long().to(self.device),
                 "returns": torch.from_numpy(flat_returns[idx]).float().to(self.device),
+                "old_values": torch.from_numpy(flat_values[idx]).float().to(self.device),
                 "advantages": torch.from_numpy(flat_adv[idx]).float().to(self.device),
                 "old_log_probs": torch.from_numpy(flat_log_probs[idx]).float().to(self.device),
             }

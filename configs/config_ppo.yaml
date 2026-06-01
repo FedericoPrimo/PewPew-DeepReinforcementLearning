@@ -8,6 +8,9 @@ ppo:
   learning_rate: 2.5e-4
   lr_schedule: "linear"     # decrescente linearmente a 0
   clip_range: 0.1
+  clip_range_vf: null       # null = value clipping disattivato
+  normalize_advantage: true
+  max_grad_norm: 0.5
   gamma: 0.99
   gae_lambda: 0.95
   ent_coef: 0.01

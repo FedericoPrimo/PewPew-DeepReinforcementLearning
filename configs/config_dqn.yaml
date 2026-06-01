@@ -9,6 +9,7 @@ dqn:
   epsilon_decay_steps: 500000
   learning_starts: 10000     # step prima di iniziare training
   train_freq: 4              # aggiorna ogni N step
+  gradient_steps: 1          # update consecutivi quando scatta train_freq
   total_timesteps: 10000000
 
 model:

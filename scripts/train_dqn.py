@@ -166,9 +166,13 @@ def main():
         # Training
         if step >= dqn.learning_starts and step % dqn.train_freq == 0:
             if len(buffer) >= dqn.batch_size:
-                batch = buffer.sample(dqn.batch_size)
-                info = agent.update(batch)
-                last_loss = info["loss"]
+                losses = []
+                gradient_steps = int(getattr(dqn, "gradient_steps", 1))
+                for _ in range(gradient_steps):
+                    batch = buffer.sample(dqn.batch_size)
+                    info = agent.update(batch)
+                    losses.append(info["loss"])
+                last_loss = float(np.mean(losses))
                 tb_logger.log_td_loss(step, last_loss)
 
         # Target network hard update

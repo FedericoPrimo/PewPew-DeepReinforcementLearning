@@ -54,6 +54,9 @@ class PPOAgent(BaseAgent):
         gae_lambda: float,
         ent_coef: float,
         vf_coef: float,
+        clip_range_vf: float | None = None,
+        normalize_advantage: bool = True,
+        max_grad_norm: float = 0.5,
         device: str = "cpu",
         feature_dim: int = 512,
         obs_shape: tuple[int, int, int] = (12, 84, 84),
@@ -68,6 +71,9 @@ class PPOAgent(BaseAgent):
         self.gae_lambda = gae_lambda
         self.ent_coef = ent_coef
         self.vf_coef = vf_coef
+        self.clip_range_vf = clip_range_vf
+        self.normalize_advantage = normalize_advantage
+        self.max_grad_norm = max_grad_norm
         self.device = torch.device(device)
         self.obs_shape = obs_shape
 
@@ -160,10 +166,11 @@ class PPOAgent(BaseAgent):
         }
 
         for _ in range(self.n_epochs):
-            for batch in self.buffer.get_minibatches(self.batch_size):
+            for batch in self.buffer.get_minibatches(self.batch_size, self.normalize_advantage):
                 obs = batch["obs"]
                 actions = batch["actions"]
                 returns = batch["returns"]
+                old_values = batch["old_values"]
                 advantages = batch["advantages"]
                 old_log_probs = batch["old_log_probs"]
 
@@ -176,7 +183,21 @@ class PPOAgent(BaseAgent):
                 surr2 = torch.clamp(ratio, 1.0 - self.clip_range, 1.0 + self.clip_range) * advantages
                 policy_loss = -torch.min(surr1, surr2).mean()
 
-                value_loss = nn.functional.smooth_l1_loss(new_values, returns)
+                if self.clip_range_vf is None:
+                    value_loss = nn.functional.smooth_l1_loss(new_values, returns)
+                else:
+                    value_pred_clipped = old_values + torch.clamp(
+                        new_values - old_values,
+                        -self.clip_range_vf,
+                        self.clip_range_vf,
+                    )
+                    value_loss_unclipped = nn.functional.smooth_l1_loss(new_values, returns, reduction="none")
+                    value_loss_clipped = nn.functional.smooth_l1_loss(
+                        value_pred_clipped,
+                        returns,
+                        reduction="none",
+                    )
+                    value_loss = torch.max(value_loss_unclipped, value_loss_clipped).mean()
 
                 entropy_loss = -entropy.mean()
 
@@ -184,7 +205,8 @@ class PPOAgent(BaseAgent):
 
                 self.optimizer.zero_grad()
                 loss.backward()
-                nn.utils.clip_grad_norm_(self.net.parameters(), max_norm=0.5)
+                if self.max_grad_norm > 0.0:
+                    nn.utils.clip_grad_norm_(self.net.parameters(), max_norm=self.max_grad_norm)
                 self.optimizer.step()
 
                 with torch.no_grad():
