@@ -10,7 +10,7 @@ preprocessing:
   normalize: false
 
 masking:
-  enabled: false
+  enabled: true
   num_masks: 2
   mask_size: [20, 20]
   mask_duration: 5
