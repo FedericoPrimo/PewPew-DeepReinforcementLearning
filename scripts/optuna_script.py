@@ -116,7 +116,9 @@ def suggest_dqn_config(
     dqn["gradient_steps"] = trial.suggest_int("gradient_steps", 1, 10)
     dqn["epsilon_start"] = trial.suggest_float("exploration_initial_eps", 0.5, 1.0)
     dqn["epsilon_end"] = trial.suggest_float("exploration_final_eps", 0.001, 0.2)
-    dqn["replay_buffer_size"] = trial.suggest_int("buffer_size", 5000, 50000000, log=True)
+    # Il paper usa un range fino a 5e7, ma questo ReplayBuffer prealloca
+    # obs e next_obs in RAM. Sopra 100k diventa facilmente ingestibile.
+    dqn["replay_buffer_size"] = trial.suggest_int("buffer_size", 5000, 100000, log=True)
 
     exploration_fraction = trial.suggest_float("exploration_fraction", 0.005, 0.5)
     dqn["epsilon_decay_steps"] = max(1, int(total_timesteps * exploration_fraction))
@@ -315,7 +317,7 @@ def main() -> int:
         dry_run=args.dry_run,
     )
 
-    study.optimize(objective, n_trials=args.n_trials, timeout=args.timeout)
+    study.optimize(objective, n_trials=args.n_trials, timeout=args.timeout, catch=(RuntimeError,))
 
     print("[OPTUNA] Ottimizzazione completata.")
     print(f"[OPTUNA] Best value: {study.best_value:.4f}")

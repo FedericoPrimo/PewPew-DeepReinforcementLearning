@@ -9,6 +9,7 @@ python scripts/optuna_script.py
 ## Come Funziona
 
 Per ogni trial Optuna:
+
 - sceglie gli iperparametri dallo search space;
 - scrive una config in `results/optuna/<model>/<study>/trial_XXXX/config.yaml`;
 - crea `common_resolved.yaml` con path separati per risultati e TensorBoard;

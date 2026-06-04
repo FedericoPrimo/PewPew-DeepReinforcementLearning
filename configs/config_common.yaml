@@ -4,7 +4,7 @@ env:
   id: "ALE/SpaceInvaders-v5"
 
 preprocessing:
-  mode: "grayscale"
+  mode: "rgb"
   image_size: 84
   frame_stack: 4
   normalize: false
