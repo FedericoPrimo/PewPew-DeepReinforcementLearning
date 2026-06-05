@@ -1,0 +1,19 @@
+ppo:
+  n_envs: 8
+  n_steps: 512
+  n_epochs: 16
+  batch_size: 64
+  learning_rate: 1.2674255898937221e-06
+  lr_schedule: linear
+  clip_range: 0.10616955533913808
+  clip_range_vf: 0.09091248360355031
+  normalize_advantage: false
+  max_grad_norm: 0.43194501864211576
+  gamma: 0.99
+  gae_lambda: 0.9664052838960043
+  ent_coef: 0.48495492608099716
+  vf_coef: 0.5247564316322378
+  total_timesteps: 500000
+model:
+  device: cuda
+  feature_dim: 512

@@ -1,0 +1,10 @@
+{
+  "agent": "dqn",
+  "mean_reward": 6.5,
+  "std_reward": 2.9972209350218635,
+  "max_reward": 13.0,
+  "total_timesteps": 500000,
+  "training_time_seconds": 1834.4762358665466,
+  "eval_episodes": 30,
+  "seed": 42
+}

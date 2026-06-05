@@ -1,0 +1,10 @@
+{
+  "agent": "ppo",
+  "mean_reward": 5.5,
+  "std_reward": 0.9574271077563381,
+  "max_reward": 6.0,
+  "total_timesteps": 500000,
+  "training_time_seconds": 1505.7038950920105,
+  "eval_episodes": 30,
+  "seed": 42
+}

@@ -1,0 +1,22 @@
+seed: 42
+env:
+  id: ALE/SpaceInvaders-v5
+preprocessing:
+  mode: grayscale
+  image_size: 84
+  frame_stack: 4
+  normalize: false
+masking:
+  enabled: false
+  num_masks: 2
+  mask_size:
+  - 20
+  - 20
+  mask_duration: 5
+  apply_probability: 0.3
+  mask_value: zero
+eval:
+  episodes: 30
+  results_dir: C:\Users\feder\Documents\SEAI\results\optuna\ppo\ppo_paper_500k\trial_0000
+logging:
+  tensorboard_dir: C:\Users\feder\Documents\SEAI\logs\optuna\ppo\ppo_paper_500k\trial_0000

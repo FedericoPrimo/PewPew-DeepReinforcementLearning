@@ -1,0 +1,16 @@
+dqn:
+  learning_rate: 7.459343285726558e-05
+  gamma: 0.99
+  batch_size: 4
+  replay_buffer_size: 5318
+  target_update_freq: 1000
+  epsilon_start: 0.8005575058716043
+  epsilon_end: 0.14190644298141306
+  epsilon_decay_steps: 242552
+  learning_starts: 1560
+  train_freq: 59
+  gradient_steps: 9
+  total_timesteps: 500000
+model:
+  feature_dim: 512
+  device: cuda
